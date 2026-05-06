@@ -1,14 +1,29 @@
 import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { Upload, Sparkles, Trash2, Copy, Check, ArrowLeft } from "lucide-react";
+import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, Sparkles, Trash2, Copy, Check, ArrowLeft } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { GeneratedListingSchema, PRODUCT_TYPES, STYLES, TONES, type GeneratedListing } from "@/lib/etsy-listing";
-import { useAuth } from "@/components/AuthProvider";
+
+const NO_CREDITS_MESSAGE = "You've used all your free credits. Upgrade to continue.";
+
+const formatProNoCreditsMessage = (currentPeriodEnd: string | null) => {
+  if (!currentPeriodEnd) {
+    return "You've used all 50 Pro credits for this billing period. More credits arrive next cycle, or upgrade to Unlimited.";
+  }
+
+  const formattedDate = new Date(currentPeriodEnd).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  return `You've used all 50 Pro credits for this billing period. Credits reset on ${formattedDate}, or upgrade to Unlimited.`;
+};
 
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -18,6 +33,31 @@ const readFileAsDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+const parseApiJsonResponse = async (response: Response, context: string) => {
+  const contentType = response.headers.get("content-type") ?? "";
+  const responseText = await response.text();
+
+  if (!responseText) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    console.error(`[${context}] Non-JSON response received`, {
+      status: response.status,
+      contentType,
+      bodyPreview: responseText.slice(0, 200),
+    });
+
+    throw new Error(
+      response.ok
+        ? "The server returned a non-JSON response."
+        : `The server returned a non-JSON ${response.status} response.`,
+    );
+  }
+};
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -26,7 +66,11 @@ const Dashboard = () => {
   const [generatedListing, setGeneratedListing] = useState<GeneratedListing | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [hasUsedFreeTrial, setHasUsedFreeTrial] = useState<boolean | null>(null);
+  const [isCreditsLoading, setIsCreditsLoading] = useState(false);
+  const [creditsLoadError, setCreditsLoadError] = useState<string | null>(null);
+  const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
+  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
+  const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState("");
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState("");
@@ -46,34 +90,47 @@ const Dashboard = () => {
     };
   }, [uploadedPreviewUrl]);
 
+  const loadCreditsStatus = async () => {
+    if (!session?.access_token) {
+      setIsCreditsLoading(false);
+      setCreditsLoadError(null);
+      setCreditsRemaining(null);
+      setCurrentPlan(null);
+      setCurrentPeriodEnd(null);
+      return;
+    }
+
+    setIsCreditsLoading(true);
+    setCreditsLoadError(null);
+
+    try {
+      const response = await fetch("/api/generate-listing", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      const payload = await parseApiJsonResponse(response, "credits-status");
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Unable to load credits.");
+      }
+
+      setCurrentPlan(typeof payload?.plan === "string" ? payload.plan : "free");
+      setCreditsRemaining(typeof payload?.credits_remaining === "number" ? payload.credits_remaining : 0);
+      setCurrentPeriodEnd(typeof payload?.current_period_end === "string" ? payload.current_period_end : null);
+    } catch (error) {
+      setCreditsLoadError(
+        error instanceof Error ? error.message : "Unable to load your credit status right now.",
+      );
+    } finally {
+      setIsCreditsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadTrialStatus = async () => {
-      if (!session?.access_token) {
-        setHasUsedFreeTrial(null);
-        return;
-      }
-
-      try {
-        const response = await fetch("/api/generate-listing", {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        });
-
-        const payload = await response.json();
-
-        if (!response.ok) {
-          throw new Error(payload?.error || "Unable to load free trial status.");
-        }
-
-        setHasUsedFreeTrial(Boolean(payload?.has_used_free_trial));
-      } catch {
-        setHasUsedFreeTrial(null);
-      }
-    };
-
-    void loadTrialStatus();
+    void loadCreditsStatus();
   }, [session?.access_token]);
 
   const handleLogout = async () => {
@@ -94,8 +151,14 @@ const Dashboard = () => {
     setIsGenerating(true);
 
     try {
-      if (hasUsedFreeTrial) {
-        throw new Error("You’ve used your free listing. Upgrade to continue.");
+      const knowsCreditsAreExhausted =
+        !isCreditsLoading &&
+        !creditsLoadError &&
+        currentPlan !== "unlimited" &&
+        creditsRemaining === 0;
+
+      if (knowsCreditsAreExhausted) {
+        throw new Error("NO_CREDITS");
       }
 
       const imageDataUrl = uploadedFile ? await readFileAsDataUrl(uploadedFile) : "";
@@ -118,17 +181,22 @@ const Dashboard = () => {
         }),
       });
 
-      const responseText = await response.text();
-      const payload = responseText ? JSON.parse(responseText) : {};
+      const payload = await parseApiJsonResponse(response, "generate-listing");
 
       if (!response.ok) {
-        throw new Error(payload?.error || "Generation failed.");
+        const message = payload?.error === "NO_CREDITS"
+          ? payload?.message || "NO_CREDITS"
+          : payload?.error || "Generation failed.";
+        throw new Error(message);
       }
 
       const parsedListing = GeneratedListingSchema.parse(payload);
       setGeneratedListing(parsedListing);
       setGenerated(true);
-      setHasUsedFreeTrial(true);
+
+      if (currentPlan !== "unlimited" && creditsRemaining !== null) {
+        setCreditsRemaining((current) => Math.max((current ?? 0) - 1, 0));
+      }
 
       toast({
         title: "Listing generated",
@@ -137,7 +205,13 @@ const Dashboard = () => {
           : "AI generated your Etsy listing using the selected product type and form inputs.",
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Generation failed.";
+      const rawMessage = error instanceof Error ? error.message : "Generation failed.";
+      const message = rawMessage === "NO_CREDITS"
+        ? currentPlan === "pro"
+          ? formatProNoCreditsMessage(currentPeriodEnd)
+          : NO_CREDITS_MESSAGE
+        : rawMessage;
+
       setGenerated(false);
       setGeneratedListing(null);
       toast({
@@ -209,9 +283,27 @@ const Dashboard = () => {
     setTimeout(() => setCopied(null), 2000);
   };
 
+  const statusText = currentPlan === "unlimited"
+    ? "Unlimited plan active"
+    : isCreditsLoading
+      ? "Loading credit status..."
+      : creditsLoadError
+        ? "Credit status unavailable right now"
+        : currentPlan === "pro" && creditsRemaining !== null
+          ? `${creditsRemaining} Pro credits left this month`
+          : currentPlan === "free" && creditsRemaining !== null
+            ? `${creditsRemaining} free credits remaining`
+            : "Credit status unavailable";
+
+  const isGenerateDisabled =
+    isGenerating ||
+    (!isCreditsLoading &&
+      !creditsLoadError &&
+      currentPlan !== "unlimited" &&
+      creditsRemaining === 0);
+
   return (
     <div className="min-h-screen bg-muted/30">
-      {/* Top bar */}
       <header className="bg-card border-b sticky top-0 z-40">
         <div className="container flex items-center justify-between h-14">
           <div className="flex items-center gap-4">
@@ -229,14 +321,29 @@ const Dashboard = () => {
 
       <div className="container py-8">
         <div className="grid lg:grid-cols-2 gap-8">
-          {/* Input Panel */}
           <div className="bg-card rounded-2xl shadow-card p-6 md:p-8 space-y-5 h-fit">
             <h2 className="text-lg font-bold text-foreground">Product Details</h2>
             <p className="text-sm text-muted-foreground">
-              {user?.email ? `${user.email} • ` : ""}{hasUsedFreeTrial ? "Free listing used" : "1 free listing available"}
+              {user?.email ? `${user.email} - ` : ""}
+              {statusText}
             </p>
 
-            {/* Image upload */}
+            {creditsLoadError && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p>We couldn't load your credit status. You can still try generating, or retry now.</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => void loadCreditsStatus()}
+                  disabled={isCreditsLoading}
+                >
+                  {isCreditsLoading ? "Retrying..." : "Retry credit check"}
+                </Button>
+              </div>
+            )}
+
             <input
               ref={fileInputRef}
               id="product-image-upload"
@@ -309,7 +416,11 @@ const Dashboard = () => {
             </div>
 
             <div className="flex gap-3 pt-2">
-              <Button className="flex-1" onClick={handleGenerate} disabled={isGenerating || hasUsedFreeTrial === true}>
+              <Button
+                className="flex-1"
+                onClick={handleGenerate}
+                disabled={isGenerateDisabled}
+              >
                 <Sparkles className="h-4 w-4 mr-2" /> {isGenerating ? "Generating..." : "Generate Listing"}
               </Button>
               <Button variant="outline" onClick={handleClear} disabled={isGenerating}>
@@ -318,7 +429,6 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Output Panel */}
           <div className="space-y-6">
             {isGenerating ? (
               <div className="bg-card rounded-2xl shadow-card p-12 text-center">

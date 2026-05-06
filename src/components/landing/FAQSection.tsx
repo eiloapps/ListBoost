@@ -5,7 +5,7 @@ const faqs = [
   { q: "Is this made specifically for Etsy sellers?", a: "Yes! ListBoost is built from the ground up for Etsy. Our AI is trained on Etsy search behavior and best practices to maximize your listing visibility." },
   { q: "Can I use my own product photos?", a: "Absolutely. You can upload a product image and our AI will identify what you're selling, then generate tailored SEO copy based on the visual analysis." },
   { q: "Do I need SEO knowledge to use this?", a: "Not at all. ListBoost handles the SEO research and optimization for you. Just describe your product and we'll do the rest." },
-  { q: "Is there a free plan?", a: "Yes. Your first AI-generated Etsy listing is on us, so you can try ListBoost before upgrading." },
+  { q: "Is there a free plan?", a: "Yes. Every new account starts on the Free plan with 3 total credits, so you can test ListBoost before upgrading to Pro or Unlimited." },
 ];
 
 const FAQSection = () => (

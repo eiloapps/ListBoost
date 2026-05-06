@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const HeroSection = () => (
   <section className="gradient-hero pt-32 pb-20 md:pt-40 md:pb-28">
@@ -13,7 +13,7 @@ const HeroSection = () => (
         Generate Etsy Titles, Tags & Descriptions in Seconds
       </h1>
       <p className="mt-6 text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto text-balance">
-        Upload a product image or enter details — get perfectly optimized Etsy listing copy instantly. More clicks, more sales, less guesswork.
+        Upload a product image or enter details and get optimized Etsy listing copy instantly. More clicks, more sales, less guesswork.
       </p>
       <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
         <Button size="lg" className="text-base px-8 h-12" asChild>
@@ -23,7 +23,7 @@ const HeroSection = () => (
           <a href="#demo">See Demo</a>
         </Button>
       </div>
-      <p className="mt-4 text-sm text-muted-foreground">No credit card required · Free plan available</p>
+      <p className="mt-4 text-sm text-muted-foreground">No credit card required - 3 free credits included</p>
     </div>
   </section>
 );

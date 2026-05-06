@@ -1,37 +1,32 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { decrementCreditsAfterGeneration, ensureGenerationAllowed, getAuthenticatedUser, getOrCreateCreditsRow, NoCreditsError } from "./credits";
 import { generateListingWithAI } from "./generate-listing";
-import { getAuthenticatedUser, getOrCreateTrialRow, markFreeTrialUsed, ensureFreeTrialAvailable } from "./trial";
+import { getAccessToken, logServerError, readJsonBody, sendJson } from "./http";
 
-const readJsonBody = async (request: IncomingMessage) => {
-  const chunks: Buffer[] = [];
-
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+const formatProExhaustedMessage = (currentPeriodEnd: string | null) => {
+  if (!currentPeriodEnd) {
+    return "You've used all 50 Pro credits for this billing period. More credits will be available next cycle, or upgrade to Unlimited.";
   }
 
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
+  const formattedDate = new Date(currentPeriodEnd).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  return `You've used all 50 Pro credits for this billing period. Credits reset on ${formattedDate}, or upgrade to Unlimited.`;
 };
 
-const sendJson = (response: ServerResponse, statusCode: number, payload: unknown) => {
-  response.statusCode = statusCode;
-  response.setHeader("Content-Type", "application/json");
-  response.end(JSON.stringify(payload));
-};
-
-const getAccessToken = (request: IncomingMessage) => {
-  const header = request.headers.authorization;
-
-  if (!header?.startsWith("Bearer ")) {
-    throw new Error("Authentication required.");
-  }
-
-  return header.slice("Bearer ".length).trim();
-};
-
-const logServerError = (context: string, error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`[${context}] ${message}`);
+const toNoCreditsPayload = (error: NoCreditsError) => {
+  const plan = error.row.plan;
+  return {
+    error: "NO_CREDITS",
+    plan,
+    currentPeriodEnd: error.row.current_period_end,
+    message: plan === "pro"
+      ? formatProExhaustedMessage(error.row.current_period_end)
+      : "You've used all your free credits. Upgrade to continue.",
+  };
 };
 
 export const createListingApiMiddleware = () => {
@@ -39,8 +34,8 @@ export const createListingApiMiddleware = () => {
     if (request.method === "GET") {
       try {
         const accessToken = getAccessToken(request);
-        const trial = await getOrCreateTrialRow(accessToken);
-        sendJson(response, 200, trial);
+        const credits = await getOrCreateCreditsRow(accessToken);
+        sendJson(response, 200, credits);
       } catch (error) {
         logServerError("generate-listing:get", error);
         const message = error instanceof Error ? error.message : "Unexpected server error.";
@@ -57,20 +52,22 @@ export const createListingApiMiddleware = () => {
 
     try {
       const accessToken = getAccessToken(request);
-      await ensureFreeTrialAvailable(accessToken);
+      await ensureGenerationAllowed(accessToken);
       const body = await readJsonBody(request);
       const listing = await generateListingWithAI(body);
       const { user } = await getAuthenticatedUser(accessToken);
-      await markFreeTrialUsed(accessToken, user);
+      await decrementCreditsAfterGeneration(accessToken, user);
       sendJson(response, 200, listing);
     } catch (error) {
       logServerError("generate-listing:post", error);
+
+      if (error instanceof NoCreditsError) {
+        sendJson(response, 403, toNoCreditsPayload(error));
+        return;
+      }
+
       const message = error instanceof Error ? error.message : "Unexpected server error.";
-      const statusCode = message === "Authentication required."
-        ? 401
-        : message === "You've used your free listing. Upgrade to continue."
-          ? 403
-          : 500;
+      const statusCode = message === "Authentication required." ? 401 : 500;
       sendJson(response, statusCode, { error: message });
     }
   };
