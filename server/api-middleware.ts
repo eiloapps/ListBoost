@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { decrementCreditsAfterGeneration, ensureGenerationAllowed, getAuthenticatedUser, getOrCreateCreditsRow, NoCreditsError } from "./credits";
+import { getOrCreateCreditsRow, NoCreditsError, refundReservedCredit, reserveCreditForGeneration, type CreditReservation } from "./credits";
 import { generateListingWithAI } from "./generate-listing";
 import { getAccessToken, logServerError, readJsonBody, sendJson } from "./http";
 
@@ -29,6 +29,34 @@ const toNoCreditsPayload = (error: NoCreditsError) => {
   };
 };
 
+const toCreditsStatusErrorPayload = (message: string) => {
+  if (message.includes("public.user_credits table does not exist")) {
+    return {
+      error: "CREDITS_TABLE_MISSING",
+      message,
+    };
+  }
+
+  if (message.includes("RLS policies")) {
+    return {
+      error: "CREDITS_RLS_BLOCKED",
+      message,
+    };
+  }
+
+  if (message.includes("server-side Supabase environment variables")) {
+    return {
+      error: "CREDITS_CONFIG_ERROR",
+      message,
+    };
+  }
+
+  return {
+    error: "CREDITS_STATUS_UNAVAILABLE",
+    message,
+  };
+};
+
 export const createListingApiMiddleware = () => {
   return async (request: IncomingMessage, response: ServerResponse) => {
     if (request.method === "GET") {
@@ -40,7 +68,9 @@ export const createListingApiMiddleware = () => {
         logServerError("generate-listing:get", error);
         const message = error instanceof Error ? error.message : "Unexpected server error.";
         const statusCode = message === "Authentication required." ? 401 : 500;
-        sendJson(response, statusCode, { error: message });
+        sendJson(response, statusCode, message === "Authentication required."
+          ? { error: message }
+          : toCreditsStatusErrorPayload(message));
       }
       return;
     }
@@ -52,12 +82,24 @@ export const createListingApiMiddleware = () => {
 
     try {
       const accessToken = getAccessToken(request);
-      await ensureGenerationAllowed(accessToken);
+      let reservation: CreditReservation | null = null;
       const body = await readJsonBody(request);
-      const listing = await generateListingWithAI(body);
-      const { user } = await getAuthenticatedUser(accessToken);
-      await decrementCreditsAfterGeneration(accessToken, user);
-      sendJson(response, 200, listing);
+      try {
+        reservation = await reserveCreditForGeneration(accessToken);
+        const listing = await generateListingWithAI(body);
+        reservation = null;
+        sendJson(response, 200, listing);
+      } catch (error) {
+        if (reservation) {
+          try {
+            await refundReservedCredit(reservation);
+          } catch (refundError) {
+            logServerError("generate-listing:refund", refundError);
+          }
+        }
+
+        throw error;
+      }
     } catch (error) {
       logServerError("generate-listing:post", error);
 

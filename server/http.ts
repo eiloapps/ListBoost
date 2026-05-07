@@ -46,20 +46,19 @@ export const getRequestOrigin = (request: IncomingMessage) => {
     return configuredAppUrl.replace(/\/+$/, "");
   }
 
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+    throw new Error("APP_URL or PUBLIC_APP_URL must be configured before creating checkout redirects in production.");
+  }
+
   const forwardedHost = request.headers["x-forwarded-host"];
   const forwardedProto = request.headers["x-forwarded-proto"];
   const hostHeader = Array.isArray(forwardedHost)
     ? forwardedHost[0]
     : forwardedHost || request.headers.host;
-  const protocol = Array.isArray(forwardedProto)
+  const rawProtocol = Array.isArray(forwardedProto)
     ? forwardedProto[0]
     : forwardedProto ?? "http";
-  const originHeader = request.headers.origin;
-  const origin = Array.isArray(originHeader) ? originHeader[0] : originHeader;
-
-  if (origin) {
-    return origin.replace(/\/+$/, "");
-  }
+  const protocol = rawProtocol === "https" || rawProtocol === "http" ? rawProtocol : "http";
 
   if (!hostHeader) {
     throw new Error("Unable to resolve request origin.");

@@ -4,7 +4,8 @@ import {
   getAdminCreditsByCustomerId,
   getAdminCreditsByEmail,
   getAdminCreditsBySubscriptionId,
-  hasProcessedWebhookEvent,
+  claimWebhookEvent,
+  markWebhookEventFailed,
   markWebhookEventProcessed,
   type CreditPlan,
   type UserCreditsRow,
@@ -344,75 +345,81 @@ export const processLemonSqueezyWebhook = async (payload: LemonWebhookPayload) =
   }
 
   const eventId = extractWebhookEventId(payload, eventName);
-  const hasProcessedEvent = await hasProcessedWebhookEvent(eventId);
+  const claimedEvent = await claimWebhookEvent(eventId, eventName, payload);
 
-  if (hasProcessedEvent) {
+  if (!claimedEvent) {
     return { ignored: true };
   }
 
-  const subscriptionId = extractSubscriptionId(payload);
-  const subscription = subscriptionId ? await fetchSubscription(subscriptionId) : null;
-  const row = await resolveUserRow(payload, subscription);
-  const attributes = payload.data?.attributes ?? {};
-  const status =
-    subscription?.status ||
-    (typeof attributes.status === "string" ? attributes.status : null) ||
-    (eventName === "subscription_cancelled" ? "cancelled" : null) ||
-    (eventName === "subscription_expired" ? "expired" : null);
-  const customerId =
-    subscription?.customer_id ||
-    (typeof attributes.customer_id === "number" || typeof attributes.customer_id === "string"
-      ? String(attributes.customer_id)
-      : null);
-  const variantId =
-    subscription?.variant_id ||
-    (typeof attributes.variant_id === "number" || typeof attributes.variant_id === "string"
-      ? String(attributes.variant_id)
-      : null);
-  const planFromVariant = getPlanForVariantId(variantId);
-  const currentPeriodEnd =
-    subscription?.current_period_end ||
-    (typeof attributes.current_period_end === "string" ? attributes.current_period_end : null);
-  const nextEmail = subscription?.user_email || (typeof attributes.user_email === "string" ? attributes.user_email : row.email) || row.email;
+  try {
+    const subscriptionId = extractSubscriptionId(payload);
+    const subscription = subscriptionId ? await fetchSubscription(subscriptionId) : null;
+    const row = await resolveUserRow(payload, subscription);
+    const attributes = payload.data?.attributes ?? {};
+    const status =
+      subscription?.status ||
+      (typeof attributes.status === "string" ? attributes.status : null) ||
+      (eventName === "subscription_cancelled" ? "cancelled" : null) ||
+      (eventName === "subscription_expired" ? "expired" : null);
+    const customerId =
+      subscription?.customer_id ||
+      (typeof attributes.customer_id === "number" || typeof attributes.customer_id === "string"
+        ? String(attributes.customer_id)
+        : null);
+    const variantId =
+      subscription?.variant_id ||
+      (typeof attributes.variant_id === "number" || typeof attributes.variant_id === "string"
+        ? String(attributes.variant_id)
+        : null);
+    const planFromVariant = getPlanForVariantId(variantId);
+    const currentPeriodEnd =
+      subscription?.current_period_end ||
+      (typeof attributes.current_period_end === "string" ? attributes.current_period_end : null);
+    const nextEmail = subscription?.user_email || (typeof attributes.user_email === "string" ? attributes.user_email : row.email) || row.email;
 
-  if (!status || !ACTIVE_STATUSES.has(status) || !planFromVariant) {
-    await fallbackToFreePlan(row, status, customerId, subscription?.id ?? subscriptionId, variantId);
-    await markWebhookEventProcessed(eventId, eventName, payload);
-    return { ignored: false, plan: "free" };
-  }
+    if (!status || !ACTIVE_STATUSES.has(status) || !planFromVariant) {
+      await fallbackToFreePlan(row, status, customerId, subscription?.id ?? subscriptionId, variantId);
+      await markWebhookEventProcessed(eventId);
+      return { ignored: false, plan: "free" };
+    }
 
-  if (planFromVariant === "unlimited") {
+    if (planFromVariant === "unlimited") {
+      await updateAdminCreditsRow(row.user_id, {
+        email: nextEmail,
+        plan: "unlimited",
+        credits_remaining: null,
+        lemonsqueezy_customer_id: customerId,
+        lemonsqueezy_subscription_id: subscription?.id ?? subscriptionId,
+        lemonsqueezy_variant_id: variantId,
+        subscription_status: status,
+        current_period_end: currentPeriodEnd,
+      });
+      await markWebhookEventProcessed(eventId);
+      return { ignored: false, plan: "unlimited" };
+    }
+
+    const nextCredits = shouldResetProCredits(row, currentPeriodEnd, eventName)
+      ? 50
+      : row.plan === "pro"
+        ? row.credits_remaining ?? 50
+        : 50;
+
     await updateAdminCreditsRow(row.user_id, {
       email: nextEmail,
-      plan: "unlimited",
-      credits_remaining: null,
+      plan: "pro",
+      credits_remaining: nextCredits,
       lemonsqueezy_customer_id: customerId,
       lemonsqueezy_subscription_id: subscription?.id ?? subscriptionId,
       lemonsqueezy_variant_id: variantId,
       subscription_status: status,
       current_period_end: currentPeriodEnd,
     });
-    await markWebhookEventProcessed(eventId, eventName, payload);
-    return { ignored: false, plan: "unlimited" };
+    await markWebhookEventProcessed(eventId);
+
+    return { ignored: false, plan: "pro" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unexpected webhook processing error.";
+    await markWebhookEventFailed(eventId, message);
+    throw error;
   }
-
-  const nextCredits = shouldResetProCredits(row, currentPeriodEnd, eventName)
-    ? 50
-    : row.plan === "pro"
-      ? row.credits_remaining ?? 50
-      : 50;
-
-  await updateAdminCreditsRow(row.user_id, {
-    email: nextEmail,
-    plan: "pro",
-    credits_remaining: nextCredits,
-    lemonsqueezy_customer_id: customerId,
-    lemonsqueezy_subscription_id: subscription?.id ?? subscriptionId,
-    lemonsqueezy_variant_id: variantId,
-    subscription_status: status,
-    current_period_end: currentPeriodEnd,
-  });
-  await markWebhookEventProcessed(eventId, eventName, payload);
-
-  return { ignored: false, plan: "pro" };
 };

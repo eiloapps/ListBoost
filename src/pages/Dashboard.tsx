@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Upload, Sparkles, Trash2, Copy, Check, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -90,7 +90,7 @@ const Dashboard = () => {
     };
   }, [uploadedPreviewUrl]);
 
-  const loadCreditsStatus = async () => {
+  const loadCreditsStatus = useCallback(async () => {
     if (!session?.access_token) {
       setIsCreditsLoading(false);
       setCreditsLoadError(null);
@@ -127,11 +127,11 @@ const Dashboard = () => {
     } finally {
       setIsCreditsLoading(false);
     }
-  };
+  }, [session?.access_token]);
 
   useEffect(() => {
     void loadCreditsStatus();
-  }, [session?.access_token]);
+  }, [loadCreditsStatus]);
 
   const handleLogout = async () => {
     await signOut();

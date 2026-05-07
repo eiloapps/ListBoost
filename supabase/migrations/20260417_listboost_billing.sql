@@ -64,8 +64,27 @@ create table if not exists public.webhook_events (
   event_id text primary key,
   event_name text not null,
   payload jsonb,
+  status text not null default 'processed' check (status in ('processing', 'processed', 'failed')),
+  error_message text,
   processed_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.webhook_events
+  add column if not exists status text not null default 'processed',
+  add column if not exists error_message text;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'webhook_events_status_check'
+  ) then
+    alter table public.webhook_events
+      add constraint webhook_events_status_check
+      check (status in ('processing', 'processed', 'failed'));
+  end if;
+end $$;
 
 alter table public.user_credits enable row level security;
 alter table public.webhook_events enable row level security;
@@ -85,33 +104,76 @@ begin
     using (auth.uid() = user_id);
   end if;
 
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'user_credits'
-      and policyname = 'users can insert own credits row'
-  ) then
-    create policy "users can insert own credits row"
-    on public.user_credits
-    for insert
-    to authenticated
-    with check (auth.uid() = user_id);
+  drop policy if exists "users can insert own credits row" on public.user_credits;
+  drop policy if exists "users can update own credits row" on public.user_credits;
+end $$;
+
+create or replace function public.consume_generation_credit(p_user_id uuid)
+returns public.user_credits
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated_row public.user_credits;
+begin
+  update public.user_credits
+  set
+    credits_remaining = case
+      when plan = 'unlimited' then credits_remaining
+      else greatest(coalesce(credits_remaining, 0) - 1, 0)
+    end,
+    free_credits_remaining = case
+      when plan = 'free' then greatest(free_credits_remaining - 1, 0)
+      else free_credits_remaining
+    end
+  where user_id = p_user_id
+    and (plan = 'unlimited' or coalesce(credits_remaining, 0) > 0)
+  returning * into updated_row;
+
+  return updated_row;
+end;
+$$;
+
+revoke all on function public.consume_generation_credit(uuid) from public, anon, authenticated;
+grant execute on function public.consume_generation_credit(uuid) to service_role;
+
+create or replace function public.refund_generation_credit(p_user_id uuid, p_plan text)
+returns public.user_credits
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated_row public.user_credits;
+begin
+  if p_plan = 'unlimited' then
+    select * into updated_row
+    from public.user_credits
+    where user_id = p_user_id;
+
+    return updated_row;
   end if;
 
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'user_credits'
-      and policyname = 'users can update own credits row'
-  ) then
-    create policy "users can update own credits row"
-    on public.user_credits
-    for update
-    to authenticated
-    using (auth.uid() = user_id)
-    with check (auth.uid() = user_id);
-  end if;
-end $$;
+  update public.user_credits
+  set
+    credits_remaining = case
+      when p_plan = 'pro' then least(coalesce(credits_remaining, 0) + 1, 50)
+      else coalesce(credits_remaining, 0) + 1
+    end,
+    free_credits_remaining = case
+      when p_plan = 'free' then least(free_credits_remaining + 1, 3)
+      else free_credits_remaining
+    end
+  where user_id = p_user_id
+  returning * into updated_row;
+
+  return updated_row;
+end;
+$$;
+
+revoke all on function public.refund_generation_credit(uuid, text) from public, anon, authenticated;
+grant execute on function public.refund_generation_credit(uuid, text) to service_role;
 
 create or replace function public.handle_updated_at()
 returns trigger
