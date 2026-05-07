@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
-import { createAdminSupabaseClient } from "./supabase-admin";
-import { createServerSupabaseClient } from "./supabase-server";
+import { createAdminSupabaseClient } from "./supabase-admin.js";
+import { createServerSupabaseClient } from "./supabase-server.js";
 
 const USER_CREDITS_TABLE = "user_credits";
 const WEBHOOK_EVENTS_TABLE = "webhook_events";

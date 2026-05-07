@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createCheckoutApiMiddleware } from "../server/create-checkout-middleware";
-import { sendJson } from "../server/http";
+import { createCheckoutApiMiddleware } from "../server/create-checkout-middleware.js";
+import { sendJson } from "../server/http.js";
 
 const handler = createCheckoutApiMiddleware();
 

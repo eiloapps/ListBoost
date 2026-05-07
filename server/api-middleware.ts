@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { getOrCreateCreditsRow, NoCreditsError, refundReservedCredit, reserveCreditForGeneration, type CreditReservation } from "./credits";
-import { generateListingWithAI } from "./generate-listing";
-import { getAccessToken, logServerError, readJsonBody, sendJson } from "./http";
+import { getOrCreateCreditsRow, NoCreditsError, refundReservedCredit, reserveCreditForGeneration, type CreditReservation } from "./credits.js";
+import { generateListingWithAI } from "./generate-listing.js";
+import { getAccessToken, logServerError, readJsonBody, sendJson } from "./http.js";
 
 const formatProExhaustedMessage = (currentPeriodEnd: string | null) => {
   if (!currentPeriodEnd) {

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { processLemonSqueezyWebhook, verifyWebhookSignature } from "./lemonsqueezy";
-import { logServerError, readRequestBody, sendJson } from "./http";
+import { processLemonSqueezyWebhook, verifyWebhookSignature } from "./lemonsqueezy.js";
+import { logServerError, readRequestBody, sendJson } from "./http.js";
 
 export const createLemonSqueezyWebhookMiddleware = () => {
   return async (request: IncomingMessage, response: ServerResponse) => {

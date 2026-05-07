@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createCheckoutUrl } from "./lemonsqueezy";
-import { getAuthenticatedUser } from "./credits";
-import { getAccessToken, getRequestOrigin, readJsonBody, sendJson, logServerError } from "./http";
+import { createCheckoutUrl } from "./lemonsqueezy.js";
+import { getAuthenticatedUser } from "./credits.js";
+import { getAccessToken, getRequestOrigin, readJsonBody, sendJson, logServerError } from "./http.js";
 
 type CheckoutRequestBody = {
   plan?: string;

@@ -1,6 +1,6 @@
-import { GenerateListingRequestSchema, PRODUCT_TYPE_LABELS, RawGeneratedListingSchema, sanitizeGeneratedListing } from "../src/lib/etsy-listing";
-import { generateGeminiJson } from "./gemini";
-import { buildGeminiEtsyUserPrompt, GEMINI_ETSY_SYSTEM_PROMPT } from "./prompts";
+import { GenerateListingRequestSchema, PRODUCT_TYPE_LABELS, RawGeneratedListingSchema, sanitizeGeneratedListing } from "../src/lib/etsy-listing.js";
+import { generateGeminiJson } from "./gemini.js";
+import { buildGeminiEtsyUserPrompt, GEMINI_ETSY_SYSTEM_PROMPT } from "./prompts.js";
 
 const LISTING_SCHEMA = {
   type: "object",

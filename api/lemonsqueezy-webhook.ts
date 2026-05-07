@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createLemonSqueezyWebhookMiddleware } from "../server/lemonsqueezy-webhook-middleware";
-import { sendJson } from "../server/http";
+import { createLemonSqueezyWebhookMiddleware } from "../server/lemonsqueezy-webhook-middleware.js";
+import { sendJson } from "../server/http.js";
 
 const handler = createLemonSqueezyWebhookMiddleware();
 

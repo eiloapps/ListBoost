@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createListingApiMiddleware } from "../server/api-middleware";
-import { sendJson } from "../server/http";
+import { createListingApiMiddleware } from "../server/api-middleware.js";
+import { sendJson } from "../server/http.js";
 
 const handler = createListingApiMiddleware();
 

@@ -10,7 +10,7 @@ import {
   type CreditPlan,
   type UserCreditsRow,
   updateAdminCreditsRow,
-} from "./credits";
+} from "./credits.js";
 
 type CheckoutPlan = Exclude<CreditPlan, "free">;
 
