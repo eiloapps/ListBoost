@@ -21,6 +21,11 @@ const AuthModal = ({ mode, onClose, onSwitch }: AuthModalProps) => {
 
   if (!mode) return null;
   const isLogin = mode === "login";
+  const appUrl = import.meta.env.VITE_APP_URL || (
+    window.location.hostname.endsWith(".vercel.app")
+      ? "https://listboost.co"
+      : window.location.origin
+  );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -102,7 +107,7 @@ const AuthModal = ({ mode, onClose, onSwitch }: AuthModalProps) => {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/?auth=login`,
+          emailRedirectTo: `${appUrl.replace(/\/+$/, "")}/?auth=login`,
           data: {
             full_name: name,
           },
