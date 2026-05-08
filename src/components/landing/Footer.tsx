@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 const Footer = () => (
   <footer className="border-t bg-muted/30 py-12">
     <div className="container">
@@ -18,19 +20,19 @@ const Footer = () => (
           <h4 className="font-semibold text-foreground text-sm mb-3">Support</h4>
           <ul className="space-y-2 text-sm text-muted-foreground">
             <li><a href="#faq" className="hover:text-foreground transition-colors">FAQ</a></li>
-            <li><a href="#" className="hover:text-foreground transition-colors">Contact</a></li>
+            <li><a href="mailto:support@listboost.co" className="hover:text-foreground transition-colors">Contact</a></li>
           </ul>
         </div>
         <div>
           <h4 className="font-semibold text-foreground text-sm mb-3">Legal</h4>
           <ul className="space-y-2 text-sm text-muted-foreground">
-            <li><a href="#" className="hover:text-foreground transition-colors">Privacy Policy</a></li>
+            <li><Link to="/privacy-policy" className="hover:text-foreground transition-colors">Privacy Policy</Link></li>
             <li><a href="#" className="hover:text-foreground transition-colors">Terms of Service</a></li>
           </ul>
         </div>
       </div>
       <div className="mt-10 pt-6 border-t text-center text-sm text-muted-foreground">
-        © {new Date().getFullYear()} ListBoost. All rights reserved.
+        &copy; {new Date().getFullYear()} ListBoost. All rights reserved.
       </div>
     </div>
   </footer>
